@@ -153,7 +153,10 @@ export const verifyOtp = async (req, res) => {
     if (!record) return res.status(400).json({ message: "Invalid OTP" })
 
     let user = await User.findOne({ email })
-    if (!user) user = await User.create({ email, isVerified: true })
+    if (!user) {
+      const { name, password } = req.body;
+      user = await User.create({ name, email, isVerified: true, password })
+    }
 
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" })
     res.cookie("token", token, getCookieOptions())
