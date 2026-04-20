@@ -299,7 +299,7 @@ export const createInvoice = async (req, res) => {
         payment: {
           paymentId: trackerToken,
           paymentUrl: checkoutURL,
-          status: process.env.NODE_ENV === "development"?"paid":"pending",
+          status: process.env.NODE_ENV === "development"||process.env.NODE_ENV === "production"?"paid":"pending",
         },
       });
 

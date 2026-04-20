@@ -13,14 +13,14 @@ passport.use(new GoogleStrategy({
     try {
       // Check if user exists
       let user = await User.findOne({ email: profile.emails[0].value })
-
-      // If not, create new user
+      
       if (!user) {
         user = await User.create({
           name: profile.displayName,
           email: profile.emails[0].value,
           googleId: profile.id,
-          isVerified: true
+          isVerified: true,
+          dp: profile.picture || null
         })
       }
 
