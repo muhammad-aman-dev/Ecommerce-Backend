@@ -133,6 +133,7 @@ export const incrementViews = async (req, res) => {
 };
 
 export const getHomepageProducts = async (req, res) => {
+  console.log("Request")
   try {
     // ----- Single aggregation using $facet -----
     const aggregated = await Product.aggregate([
