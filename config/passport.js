@@ -15,12 +15,13 @@ passport.use(new GoogleStrategy({
       let user = await User.findOne({ email: profile.emails[0].value })
       
       if (!user) {
+        const profileImage = profile.photos[0].value || profile._json.picture || null;
         user = await User.create({
           name: profile.displayName,
           email: profile.emails[0].value,
           googleId: profile.id,
           isVerified: true,
-          dp: profile.picture || null
+          dp: profileImage
         })
       }
 
