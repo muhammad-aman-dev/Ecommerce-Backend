@@ -45,6 +45,9 @@ app.get("/", (req, res) => {
   res.send("Server is running");
 });
 
+app.get("/favicon.ico", (req, res) => res.status(204));
+app.get("/favicon.png", (req, res) => res.status(204));
+
 // ---------------- START SERVER ----------------
 app.listen(process.env.PORT, () => {
   console.log(`Server running on port ${process.env.PORT}`);
