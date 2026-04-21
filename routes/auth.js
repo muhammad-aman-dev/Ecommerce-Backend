@@ -8,7 +8,7 @@ import { createAdmin, adminLogin } from "../controllers/authController.js";
 import { adminAuth } from "../middlewares/adminMiddleware.js";
 import { userAuth } from "../middlewares/authMiddleware.js";
 import upload from "../middlewares/multerMiddleware.js";
-import { updateBuyerStatus, getMyOrders } from "../controllers/ordersController.js";
+import { updateBuyerStatus, getMyOrders, requestRefundByBuyer } from "../controllers/ordersController.js";
 
 const router = express.Router()
 
@@ -53,6 +53,7 @@ router.post("/change-user-password", userAuth, changeUserPassword)
 
 router.get("/my-orders", userAuth, getMyOrders);
 router.patch("/update-status/:id", userAuth, updateBuyerStatus);
+router.patch("/request-refund/:orderId", userAuth, requestRefundByBuyer);
 
 
 export default router;  

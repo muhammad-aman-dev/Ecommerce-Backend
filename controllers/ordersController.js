@@ -1,5 +1,6 @@
 import Order from "../models/Orders.js"
 import Seller from "../models/Seller.js";
+import RefundRequests from "../models/RefundRequests.js";
 
 export const getMyOrders = async (req, res) => {
   try {
@@ -132,6 +133,66 @@ export const updateSellerStatus = async (req, res) => {
       order 
     });
 
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+export const requestRefundByBuyer = async (req, res) => {
+  try {
+    const { reason, message } = req.body; // Incoming from Swal
+    const order = await Order.findById(req.params.orderId);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+
+    // 1. Security: Ensure the person requesting is the owner of the order
+    if (order.userId !== req.user.id) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    // 2. Check if refund was already requested/processed
+    if (order.refundStatus !== "none") {
+      return res.status(400).json({ 
+        success: false, 
+        message: "A refund request for this order is already in progress or completed." 
+      });
+    }
+
+    // 3. Maturation Check (PayoutEligibleDate)
+    const now = new Date();
+    if (order.payoutEligibleDate && now > new Date(order.payoutEligibleDate)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "The refund period has expired as funds have matured for payout." 
+      });
+    }
+
+    // 4. Create the Refund Request record for Admin
+    await RefundRequests.create({
+      orderId: order._id.toString(), 
+      orderDisplayId: order.orderId,
+      buyerEmail: order.buyer.email,
+      sellerEmail: order.sellerEmail,
+      amountUSD: order.totalAmountUSD,
+      amountLocal: order.totalAmountLocal,
+      currency: order.currency,
+      reason: reason,
+      message: message,
+      status: "pending"
+    });
+
+    // 5. Update the main Order status
+    order.refundStatus = "requested";
+    await order.save();
+
+    res.status(201).json({ 
+      success: true, 
+      message: "Refund request submitted successfully for Admin review." 
+    });
+    
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
