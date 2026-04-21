@@ -30,6 +30,16 @@ app.use(cors({
 app.use(express.json());
 app.use(passport.initialize());
 
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error("DB connection failed:", error.message);
+    res.status(500).json({ message: "Database connection error" });
+  }
+});
+
 // ---------------- ROUTES ----------------
 app.use("/auth", authRoutes);
 app.use("/seller", sellerRouter);
