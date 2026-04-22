@@ -6,6 +6,7 @@ import Discounts from "../models/Discounts.js";
 import Products from "../models/Products.js";
 import Order from "../models/Orders.js";
 import Admin from "../models/Admin.js";
+import RefundRequests from "../models/RefundRequests.js";
 import nodemailer from "nodemailer";
 import fs from "fs";
 import {
@@ -282,6 +283,70 @@ const sendAdminCredentialEmail = async (email, password, goal) => {
     html: htmlContent,
   });
 };
+
+// ---------------- REFUND NOTIFICATION EMAIL ----------------
+const sendRefundDecisionEmail = async (buyerEmail, sellerEmail, orderId, status, adminNote) => {
+  const isApproved = status === "approved";
+  const subject = isApproved 
+    ? `Refund Approved: Order ${orderId} ✅` 
+    : `Refund Request Update: Order ${orderId} ❌`;
+
+  const htmlContent = `
+<div style="background-color: #f8fafc; padding: 50px 20px; font-family: 'Segoe UI', Roboto, sans-serif;">
+  <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 40px; overflow: hidden; border: 1px solid #f1f5f9;">
+    
+    <div style="background-color: ${isApproved ? '#0d9488' : '#0f172a'}; padding: 40px; text-align: center;">
+      <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 900; letter-spacing: -1px; text-transform: uppercase;">
+        TRADE<span style="color: ${isApproved ? '#ccfbf1' : '#14b8a6'};">XON</span>
+      </h1>
+      <p style="margin: 8px 0 0; color: rgba(255,255,255,0.6); font-size: 11px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">Refund Department</p>
+    </div>
+
+    <div style="padding: 50px 40px;">
+      <h2 style="margin: 0; color: #1e293b; font-size: 22px; font-weight: 900;">Order Update</h2>
+      <p style="margin: 20px 0; color: #64748b; font-size: 15px; line-height: 26px;">
+        Regarding your refund request for order <strong>${orderId}</strong>, our administrative team has reached a decision: 
+        <strong style="color: ${isApproved ? '#0d9488' : '#be123c'}; text-transform: uppercase;">${status}</strong>.
+      </p>
+
+      <div style="background-color: #f8fafc; border-left: 4px solid ${isApproved ? '#0d9488' : '#0f172a'}; padding: 25px; margin: 30px 0; border-radius: 0 24px 24px 0;">
+        <p style="margin: 0 0 10px; color: #94a3b8; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">Admin Message:</p>
+        <p style="margin: 0; color: #1e293b; font-size: 14px; line-height: 22px;">"${adminNote}"</p>
+      </div>
+
+      ${isApproved ? `
+      <p style="color: #64748b; font-size: 14px;">The funds have been credited back to your original payment method. Please allow 3-5 business days for the transaction to reflect in your account.</p>
+      ` : `
+      <p style="color: #64748b; font-size: 14px;">Your request was declined based on the review of the order details. If you have further questions, please reply to this email.</p>
+      `}
+    </div>
+
+    <div style="background-color: #f8fafc; padding: 20px; text-align: center; border-top: 1px solid #f1f5f9;">
+       <p style="margin: 0; color: #cbd5e1; font-size: 10px;">© ${new Date().getFullYear()} TradeXon Inc. • Global Support</p>
+    </div>
+  </div>
+</div>
+`;
+
+  // 1. Send to Buyer
+  await transporter.sendMail({
+    from: `"TradeXon Support" <${process.env.EMAIL_USER}>`,
+    to: buyerEmail,
+    subject,
+    html: htmlContent,
+  });
+
+  // 2. Notify Seller (Only if approved, because their balance is affected)
+  if (isApproved) {
+    await transporter.sendMail({
+      from: `"TradeXon Compliance" <${process.env.EMAIL_USER}>`,
+      to: sellerEmail,
+      subject: `Notice: Refund Processed for Order ${orderId}`,
+      html: `<p>A refund request for order <b>${orderId}</b> has been approved. If funds were already disbursed to your account, they have been adjusted from your remaining payout balance.</p>`
+    });
+  }
+};
+
 
 // ---------------- ACCEPT / REJECT SELLER ----------------
 export const addSeller = async (req, res) => {
@@ -846,71 +911,202 @@ export const changeAdminPassword = async (req, res) => {
 };
 
 export const processMaturedPayouts = async (req, res) => {
-  console.log("Checking for matured payouts...");
-  
+  console.log("Manual payout trigger...");
+
   try {
     const now = new Date();
 
-    // 1. Find all eligible orders
-    const maturedOrders = await Order.find({
+    const payoutQuery = {
       buyerStatus: "received",
       isPaidToSeller: false,
-      payoutEligibleDate: { $lte: now },
-      refundStatus: { $ne: "approved" }
-    });
+      payoutEligibleDate: { $ne: null, $lte: now },
+      $or: [
+        { refundStatus: "none" },
+        { refundStatus: "rejected" }
+      ]
+    };
+
+    const maturedOrders = await Order.find(payoutQuery);
 
     if (maturedOrders.length === 0) {
-      return res.status(200).json({ 
-        message: "No matured orders found to process." 
+      return res.status(200).json({
+        message: "No matured orders found"
       });
     }
 
     const processedOrderIds = [];
 
-    // 2. Loop through and update sellers atomically
-    // Using for...of is fine for ~1,000 records
     for (const order of maturedOrders) {
       try {
         const result = await Seller.updateOne(
           { email: order.sellerEmail },
-          { 
-            $inc: { 
-              revenue: order.totalAmountUSD, 
-              remainingPayout: order.totalAmountUSD, 
-              sales: 1 
-            } 
+          {
+            $inc: {
+              revenue: order.totalAmountUSD,
+              remainingPayout: order.totalAmountUSD,
+              sales: 1
+            }
           }
         );
 
-        // Only add to the 'paid' list if the seller update was successful
         if (result.modifiedCount > 0) {
           processedOrderIds.push(order._id);
         }
       } catch (err) {
-        console.error(`Failed to update seller for order ${order._id}:`, err);
-        // Continue to next order even if one fails
+        console.error(`Failed order ${order._id}:`, err);
       }
     }
 
-    // 3. Finalize all orders in ONE database call
     if (processedOrderIds.length > 0) {
       await Order.updateMany(
-        { _id: { $in: processedOrderIds } },
-        { $set: { isPaidToSeller: true } }
+        {
+          _id: { $in: processedOrderIds },
+          isPaidToSeller: false // 🔒 double protection
+        },
+        {
+          $set: { isPaidToSeller: true }
+        }
       );
     }
 
-    return res.status(200).json({ 
-      message: `Success! ${processedOrderIds.length} matured orders were processed and funds released.`,
+    return res.status(200).json({
+      success: true,
       found: maturedOrders.length,
       processed: processedOrderIds.length
     });
 
   } catch (error) {
-    console.error("Payout Route Error:", error);
-    return res.status(500).json({ 
-      message: "An error occurred while processing payouts.",
-      error: error.message 
+    console.error("Payout Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Payout processing failed"
+    });
+  }
+};
+
+
+// ---------------- GET ALL REFUND REQUESTS ----------------
+export const getAllRefundRequests = async (req, res) => {
+  try {
+    const requests = await RefundRequests.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, requests });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// ---------------- PROCESS REFUND (APPROVE/REJECT) ----------------
+export const processRefund = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminNote } = req.body;
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid refund status"
+      });
+    }
+
+    const refundReq = await RefundRequests.findById(id);
+    if (!refundReq) {
+      return res.status(404).json({
+        success: false,
+        message: "Refund request not found"
+      });
+    }
+
+    // 🚨 Prevent double processing
+    if (refundReq.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Refund already processed"
+      });
+    }
+
+    const order = await Order.findOne({ orderId: refundReq.orderDisplayId });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    // =====================================================
+    // 🔒 STRICT RULE: BLOCK IF PAYOUT WINDOW PASSED
+    // =====================================================
+    const now = new Date();
+
+    if (order.payoutEligibleDate && now > new Date(order.payoutEligibleDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Refund cannot be processed. Payout window has expired."
+      });
+    }
+
+    // ---------------- UPDATE REFUND REQUEST ----------------
+    refundReq.status = status;
+    refundReq.adminNote = adminNote || "";
+    refundReq.processedAt = new Date();
+
+    // ---------------- UPDATE ORDER ----------------
+    order.refundStatus = status;
+
+    // =====================================================
+    // ✅ APPROVED
+    // =====================================================
+    if (status === "approved") {
+
+      order.buyerStatus = "cancelled";
+      order.sellerStatus = "cancelled";
+
+      order.items = order.items.map(item => ({
+        ...item,
+        sellerStatus: "cancelled"
+      }));
+
+      // ❗ NO NEED to reverse seller money
+      // because payout never happened (strict system)
+
+      order.isPaidToSeller = false;
+      order.payoutEligibleDate = null;
+      order.buyerStatusUpdateDate = new Date();
+    }
+
+    // =====================================================
+    // ❌ REJECTED
+    // =====================================================
+    if (status === "rejected") {
+      order.refundStatus = "rejected";
+    }
+
+    await refundReq.save();
+    await order.save();
+
+    // ---------------- EMAIL ----------------
+    try {
+      await sendRefundDecisionEmail(
+        refundReq.buyerEmail,
+        refundReq.sellerEmail,
+        refundReq.orderDisplayId,
+        status,
+        adminNote
+      );
+    } catch (err) {
+      console.error("Email failed:", err);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Refund ${status} processed successfully`
+    });
+
+  } catch (error) {
+    console.error("Refund Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
     });
   }
 };
