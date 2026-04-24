@@ -200,49 +200,73 @@ export const getHomepageProducts = async (req, res) => {
 
 export const getProductsByCategory = async (req, res) => {
   try {
-    const products = await Product.aggregate([
-      { $match: { status: "Active" } },
+    // 1️⃣ Get ALL categories (always show them)
+    const categories = await Category.find().lean();
 
-      // 🧠 Add smart score
+    // 2️⃣ Aggregate products (ONLY active + normalized)
+    const products = await Product.aggregate([
+      {
+        $match: {
+          status: { $regex: /^active$/i } // handles Active/active
+        }
+      },
+
+      // 3️⃣ Normalize category (avoid " Electronics " bugs)
+      {
+        $addFields: {
+          normalizedCategory: {
+            $trim: { input: { $toLower: "$category" } }
+          }
+        }
+      },
+
+      // 4️⃣ Smart scoring (balanced + light randomness)
       {
         $addFields: {
           score: {
             $add: [
-              { $multiply: ["$salesCount", 0.5] },   // sales priority
-              { $multiply: ["$views", 0.3] },        // popularity
-              { $cond: [{ $eq: ["$featured", true] }, 15, 0] }, // featured boost
-              { $multiply: [{ $rand: {} }, 20] }     // randomness
+              { $multiply: ["$salesCount", 0.6] }, // strong signal
+              { $multiply: ["$views", 0.3] },      // popularity
+              { $cond: [{ $eq: ["$featured", true] }, 15, 0] }, // boost
+              { $multiply: [{ $rand: {} }, 5] }    // LIGHT randomness
             ]
           }
         }
       },
 
-      // 📊 Sort by score
+      // 5️⃣ Sort by score
       { $sort: { score: -1 } },
 
-      // 📦 Group by category
+      // 6️⃣ Group by normalized category
       {
         $group: {
-          _id: "$category",
+          _id: "$normalizedCategory",
           products: { $push: "$$ROOT" }
         }
       },
 
-      // ✂️ Limit pool per category (important for randomness)
+      // 7️⃣ Limit pool per category (performance)
       {
         $project: {
-          products: { $slice: ["$products", 25] }
+          products: { $slice: ["$products", 20] }
         }
       }
     ]);
 
-    // 🔀 Shuffle + pick final 8
+    // 8️⃣ Convert aggregation to map
+    const map = {};
+    products.forEach(item => {
+      map[item._id] = item.products;
+    });
+
+    // 9️⃣ Build final result (ALL categories included)
     const result = {};
 
-    for (const item of products) {
-      const shuffled = item.products.sort(() => Math.random() - 0.5);
-      result[item._id] = shuffled.slice(0, 8);
-    }
+    categories.forEach(cat => {
+      const key = cat.name.trim().toLowerCase();
+
+      result[cat.name] = (map[key] || []).slice(0, 8);
+    });
 
     res.json({
       success: true,
@@ -257,7 +281,6 @@ export const getProductsByCategory = async (req, res) => {
     });
   }
 };
-
 export const getProductsBySingleCategory = async (req, res) => {
   try {
     const { categoryName } = req.params;
