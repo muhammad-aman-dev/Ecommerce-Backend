@@ -200,18 +200,20 @@ export const getHomepageProducts = async (req, res) => {
 
 export const getProductsByCategory = async (req, res) => {
   try {
-    // 1️⃣ Get ALL categories (always show them)
+    // 1️⃣ Get all categories
     const categories = await Category.find().lean();
 
-    // 2️⃣ Aggregate products (ONLY active + normalized)
+    // 2️⃣ Aggregate products
     const products = await Product.aggregate([
       {
         $match: {
-          status: { $regex: /^active$/i } // handles Active/active
+          $expr: {
+            $eq: [{ $toLower: "$status" }, "active"]
+          }
         }
       },
 
-      // 3️⃣ Normalize category (avoid " Electronics " bugs)
+      // 3️⃣ Normalize category
       {
         $addFields: {
           normalizedCategory: {
@@ -220,15 +222,35 @@ export const getProductsByCategory = async (req, res) => {
         }
       },
 
-      // 4️⃣ Smart scoring (balanced + light randomness)
+      // 4️⃣ Smart scoring + randomness + freshness
       {
         $addFields: {
           score: {
             $add: [
-              { $multiply: ["$salesCount", 0.6] }, // strong signal
-              { $multiply: ["$views", 0.3] },      // popularity
-              { $cond: [{ $eq: ["$featured", true] }, 15, 0] }, // boost
-              { $multiply: [{ $rand: {} }, 5] }    // LIGHT randomness
+              { $multiply: ["$salesCount", 0.6] },
+              { $multiply: ["$views", 0.3] },
+
+              // Featured boost
+              {
+                $cond: [{ $eq: ["$featured", true] }, 15, 0]
+              },
+
+              // 🔥 New product boost (last 3 days)
+              {
+                $cond: [
+                  {
+                    $gte: [
+                      "$createdAt",
+                      new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+                    ]
+                  },
+                  20,
+                  0
+                ]
+              },
+
+              // 🎲 Controlled randomness
+              { $multiply: [{ $rand: {} }, 5] }
             ]
           }
         }
@@ -237,7 +259,7 @@ export const getProductsByCategory = async (req, res) => {
       // 5️⃣ Sort by score
       { $sort: { score: -1 } },
 
-      // 6️⃣ Group by normalized category
+      // 6️⃣ Group by category
       {
         $group: {
           _id: "$normalizedCategory",
@@ -259,23 +281,31 @@ export const getProductsByCategory = async (req, res) => {
       map[item._id] = item.products;
     });
 
-    // 9️⃣ Build final result (ALL categories included)
+    // 9️⃣ Build final result (NO empty categories)
     const result = {};
 
     categories.forEach(cat => {
       const key = cat.name.trim().toLowerCase();
 
-      result[cat.name] = (map[key] || []).slice(0, 8);
+      if (map[key] && map[key].length > 0) {
+        // 🎲 Shuffle slightly so UI is not identical every time
+        const shuffled = map[key]
+          .sort(() => 0.5 - Math.random())
+          .slice(0, 8);
+
+        result[cat.name] = shuffled;
+      }
     });
 
-    res.json({
+    return res.json({
       success: true,
       productsByCategory: result
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
+    console.error("getProductsByCategory error:", err);
+
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch products by category"
     });
