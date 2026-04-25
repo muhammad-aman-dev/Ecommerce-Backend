@@ -200,6 +200,10 @@ export const getHomepageProducts = async (req, res) => {
 
 export const getProductsByCategory = async (req, res) => {
   try {
+    // ⏱️ Safer date (for "new product" boost)
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
     // 1️⃣ Get all categories
     const categories = await Category.find().lean();
 
@@ -222,7 +226,7 @@ export const getProductsByCategory = async (req, res) => {
         }
       },
 
-      // 4️⃣ Smart scoring + randomness + freshness
+      // 4️⃣ Smart scoring (ranking + freshness + randomness)
       {
         $addFields: {
           score: {
@@ -230,7 +234,7 @@ export const getProductsByCategory = async (req, res) => {
               { $multiply: ["$salesCount", 0.6] },
               { $multiply: ["$views", 0.3] },
 
-              // Featured boost
+              // ⭐ Featured boost
               {
                 $cond: [{ $eq: ["$featured", true] }, 15, 0]
               },
@@ -238,18 +242,13 @@ export const getProductsByCategory = async (req, res) => {
               // 🔥 New product boost (last 3 days)
               {
                 $cond: [
-                  {
-                    $gte: [
-                      "$createdAt",
-                      new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
-                    ]
-                  },
+                  { $gte: ["$createdAt", threeDaysAgo] },
                   20,
                   0
                 ]
               },
 
-              // 🎲 Controlled randomness
+              // 🎲 Light randomness
               { $multiply: [{ $rand: {} }, 5] }
             ]
           }
@@ -281,26 +280,33 @@ export const getProductsByCategory = async (req, res) => {
       map[item._id] = item.products;
     });
 
-    // 9️⃣ Build final result (NO empty categories)
+    // 9️⃣ Build final result (🚫 NO empty categories)
     const result = {};
 
     categories.forEach(cat => {
       const key = cat.name.trim().toLowerCase();
 
       if (map[key] && map[key].length > 0) {
-        // 🎲 Shuffle slightly so UI is not identical every time
-        const shuffled = map[key]
-          .sort(() => 0.5 - Math.random())
+        // 🎯 Keep ranking but add slight shuffle
+        const topProducts = map[key].slice(0, 12);
+
+        const shuffled = topProducts
+          .sort((a, b) => b.score - a.score) // keep best first
+          .slice(0, 12)
+          .sort(() => Math.random() - 0.5)   // light shuffle
           .slice(0, 8);
 
         result[cat.name] = shuffled;
       }
     });
 
-    return res.json({
-      success: true,
-      productsByCategory: result
-    });
+    // 🔥 Disable caching (fixes 304 issue)
+    return res
+      .set("Cache-Control", "no-store")
+      .json({
+        success: true,
+        productsByCategory: result
+      });
 
   } catch (err) {
     console.error("getProductsByCategory error:", err);
