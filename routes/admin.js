@@ -1,7 +1,7 @@
 // routes/admin.js
 import express from "express";
 import { adminAuth } from "../middlewares/adminMiddleware.js";
-import { addSeller, getAllSellerSigns, addBanner, deleteBannerByLink, addDiscount, getAllSellersForAdmin, toggleSellerStatus, findProductById, updateProductStatus, adminUpdateOrderStatus, adminGetOrderById, getAllAdmins, addAdmin, removeAdmin, isSuperAdmin, changeAdminPassword, processMaturedPayouts, getAllRefundRequests, processRefund } from "../controllers/adminController.js";
+import { addSeller, getAllSellerSigns, addBanner, deleteBannerByLink, addDiscount, getAllSellersForAdmin, toggleSellerStatus, findProductById, updateProductStatus, adminUpdateOrderStatus, adminGetOrderById, getAllAdmins, addAdmin, removeAdmin, isSuperAdmin, changeAdminPassword, processMaturedPayouts, getAllRefundRequests, processRefund, getAllComplaints, updateComplaintStatus } from "../controllers/adminController.js";
 import { addCategory, removeCategory } from "../controllers/categoryController.js";
 import upload from "../middlewares/multerMiddleware.js";
 import { getPendingContacts, updateContactStatus } from "../controllers/helpController.js";
@@ -47,7 +47,10 @@ adminRouter.patch("/update-password", adminAuth, changeAdminPassword);
 adminRouter.post("/manual-payout-trigger", adminAuth, processMaturedPayouts);
 
 adminRouter.get("/refund-requests", adminAuth, getAllRefundRequests);
+adminRouter.get("/seller-support/all", adminAuth, getAllComplaints);
 
+
+adminRouter.put("/support/update/:id", adminAuth, updateComplaintStatus);
 // Admin process a specific request
 adminRouter.patch("/process-refund/:id", adminAuth, processRefund);
 

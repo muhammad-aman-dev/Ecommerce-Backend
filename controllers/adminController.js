@@ -8,6 +8,7 @@ import Order from "../models/Orders.js";
 import Admin from "../models/Admin.js";
 import RefundRequests from "../models/RefundRequests.js";
 import nodemailer from "nodemailer";
+import SellerSupport from "../models/SellerSupport.js";
 import fs from "fs";
 import {
   uploadToCloudinary,
@@ -345,6 +346,32 @@ const sendRefundDecisionEmail = async (buyerEmail, sellerEmail, orderId, status,
       html: `<p>A refund request for order <b>${orderId}</b> has been approved. If funds were already disbursed to your account, they have been adjusted from your remaining payout balance.</p>`
     });
   }
+};
+
+const sendSupportUpdateEmail = async (email, name, subject, status, adminMessage) => {
+  const isSolved = status === "Solved";
+  
+  const htmlContent = `
+    <div style="font-family: sans-serif; padding: 20px; color: #334155;">
+      <h2 style="color: ${isSolved ? '#0d9488' : '#be123c'};">Support Ticket Update</h2>
+      <p>Hello <strong>${name}</strong>,</p>
+      <p>Your inquiry regarding <strong>"${subject}"</strong> has been marked as <strong>${status}</strong>.</p>
+      <div style="background: #f1f5f9; padding: 15px; border-radius: 10px; margin: 20px 0;">
+        <p style="margin: 0; font-weight: bold; font-size: 12px; color: #64748b; text-transform: uppercase;">Message from Admin:</p>
+        <p style="margin: 10px 0 0 0;">${adminMessage}</p>
+      </div>
+      <p>Thank you for your patience.</p>
+      <hr />
+      <p style="font-size: 12px; color: #94a3b8;">TradeXon Support Team</p>
+    </div>
+  `;
+
+  await transporter.sendMail({
+    from: `"TradeXon Support" <${process.env.EMAIL_USER}>`,
+    to: email,
+    subject: `Update on your Support Ticket: ${status}`,
+    html: htmlContent,
+  });
 };
 
 
@@ -1108,5 +1135,46 @@ export const processRefund = async (req, res) => {
       success: false,
       message: "Internal server error"
     });
+  }
+};
+
+export const getAllComplaints = async (req, res) => {
+  try {
+    const complaints = await SellerSupport.find().sort({ createdAt: -1 });
+    res.status(200).json({ success: true, complaints });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const updateComplaintStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, adminMessage } = req.body; 
+
+    const complaint = await SellerSupport.findByIdAndUpdate(
+      id, 
+      { status }, 
+      { new: true }
+    );
+
+    if (!complaint) return res.status(404).json({ message: "Complaint not found" });
+
+    // Send the Email
+    try {
+      await sendSupportUpdateEmail(
+        complaint.sellerEmail, 
+        complaint.sellerName, 
+        complaint.subject, 
+        status, 
+        adminMessage
+      );
+    } catch (mailErr) {
+      console.error("Mail failed:", mailErr);
+    }
+
+    res.status(200).json({ success: true, message: `Status updated to ${status}` });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 };
