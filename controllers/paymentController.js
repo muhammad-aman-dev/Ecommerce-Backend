@@ -305,6 +305,16 @@ export const createInvoice = async (req, res) => {
 
       await newOrder.save();
       createdOrders.push(newOrder);
+
+      if (process.env.NODE_ENV === "development") {
+  try {
+    await sendOrderConfirmationEmail(newOrder, "pending");
+    console.log(`📧 DEV email sent to: ${newOrder.buyer.email}`);
+  } catch (err) {
+    console.error("❌ DEV email failed:", err);
+  }
+}
+    
     }
 
     return res.status(200).json({
