@@ -5,158 +5,129 @@ import Product from "../models/Products.js"
 import nodemailer from "nodemailer";
 
 
+/* --- EMAIL: For the Buyer --- */
 const sendOrderConfirmationEmail = async (order) => {
   const transporter = nodemailer.createTransport({
     service: "gmail",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
+    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
   });
 
-  // Generate Items Rows dynamically with responsive table structure
   const itemsHtml = order.items.map(item => {
-    const variationsText = item.variations 
-      ? Object.entries(item.variations)
-          .map(([key, val]) => `${key}: ${val}`)
-          .join(' | ')
-      : '';
+    // Safely handle variations if they exist, otherwise empty string
+    const variationsText = (item.variations && Object.keys(item.variations).length > 0)
+      ? Object.entries(item.variations).map(([k, v]) => `${k}: ${v}`).join(' | ') 
+      : 'Standard Version';
+    
+    // Logic: Use priceUSD if currency is USD, else use priceLocal
+    const unitPrice = order.currency === "USD" ? item.priceUSD : item.priceLocal;
 
     return `
       <tr>
-        <td align="left" style="padding: 15px 0; border-bottom: 1px solid #eeeeee;">
-          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
-            <tr>
-              <td width="70" style="vertical-align: top;">
-                <img src="${item.image}" width="60" height="60" alt="${item.name}" style="display: block; border-radius: 8px; object-fit: cover; border: 1px solid #e2e8f0;">
-              </td>
-              <td style="padding-left: 15px; vertical-align: top;">
-                <p style="margin: 0; font-family: sans-serif; font-size: 14px; line-height: 20px; color: #333333; font-weight: bold;">${item.name}</p>
-                ${variationsText ? `<p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 12px; color: #666666;">${variationsText}</p>` : ''}
-                <p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 12px; color: #999999;">Qty: ${item.quantity}</p>
-              </td>
-            </tr>
-          </table>
+        <td style="padding: 15px 0; border-bottom: 1px solid #eeeeee;">
+          <img src="${item.image}" alt="${item.name}" width="60" style="border-radius:8px; margin-right:12px; vertical-align:middle; border: 1px solid #ddd;">
+          <div style="display:inline-block; vertical-align:middle; max-width: 250px;">
+            <p style="margin: 0; font-family: sans-serif; font-size: 14px; font-weight: bold; color: #1e293b;">${item.name}</p>
+            <p style="margin: 2px 0 0; font-family: sans-serif; font-size: 12px; color: #64748b;">${variationsText}</p>
+          </div>
         </td>
-        <td align="right" style="padding: 15px 0; border-bottom: 1px solid #eeeeee; vertical-align: top;">
-          <p style="margin: 0; font-family: sans-serif; font-size: 14px; font-weight: bold; color: #333333;">
-            ${order.currency} ${(item.priceLocal * item.quantity).toLocaleString()}
-          </p>
+        <td align="right" style="padding: 15px 0; border-bottom: 1px solid #eeeeee; font-family: sans-serif; font-size: 14px; color: #1e293b; font-weight: 500;">
+          ${order.currency} ${unitPrice.toLocaleString()} x ${item.quantity}
         </td>
-      </tr>
-    `;
+      </tr>`;
   }).join('');
+
+  // Determine final total based on currency selected in schema
+  const finalTotal = order.currency === "USD" ? order.totalAmountUSD : order.totalAmountLocal;
 
   const mailOptions = {
     from: `"Tradexon Support" <${process.env.EMAIL_USER}>`,
     to: order.buyer.email,
-    subject: `Order Confirmed: #${order.orderId || order._id.toString().slice(-6).toUpperCase()}`,
+    subject: `Order Confirmed: ${order.orderId}`,
     html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Order Confirmation</title>
-      </head>
-      <body style="margin: 0; padding: 0; background-color: #f4f7f9;">
-        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f4f7f9;">
-          <tr>
-            <td align="center" style="padding: 20px 10px;">
-              <!-- Main Container -->
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
-                
-                <!-- Header -->
-                <tr>
-                  <td align="center" style="padding: 40px 20px; background-color: #0f172a;">
-                    <h1 style="margin: 0; font-family: sans-serif; font-size: 24px; color: #ffffff; letter-spacing: 2px;">TRADEXON</h1>
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top: 15px;">
-                      <tr>
-                        <td style="background-color: #10b981; padding: 5px 15px; border-radius: 20px;">
-                          <span style="font-family: sans-serif; font-size: 11px; color: #ffffff; font-weight: bold; text-transform: uppercase;">Payment Received</span>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
+      <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+        <div style="background: #0f172a; padding: 30px; text-align: center; color: white;">
+          <h1 style="margin: 0; font-size: 24px;">Order Confirmed!</h1>
+          <p style="margin: 10px 0 0; opacity: 0.8;">Order ID: ${order.orderId}</p>
+        </div>
+        <div style="padding: 30px;">
+          <p style="font-size: 16px; color: #334155;">Hi <strong>${order.buyer.name}</strong>,</p>
+          <p style="color: #64748b; line-height: 1.5;">Your payment via <strong>${order.payment.method}</strong> was successful. We've notified the seller to start preparing your package.</p>
+          
+          <table width="100%" cellspacing="0" cellpadding="0" style="margin-top: 25px;">
+            <thead>
+              <tr>
+                <th align="left" style="border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; color: #94a3b8; font-size: 12px; text-transform: uppercase;">Product</th>
+                <th align="right" style="border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; color: #94a3b8; font-size: 12px; text-transform: uppercase;">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
 
-                <!-- Content -->
-                <tr>
-                  <td style="padding: 40px 30px;">
-                    <h2 style="margin: 0 0 15px 0; font-family: sans-serif; font-size: 20px; color: #1e293b;">Hi ${order.buyer.name},</h2>
-                    <p style="margin: 0; font-family: sans-serif; font-size: 15px; line-height: 24px; color: #475569;">
-                      Exciting news! Your order has been confirmed. <strong>${order.sellerName}</strong> is getting your items ready for shipment.
-                    </p>
+          <div style="margin-top: 20px; text-align: right;">
+            <p style="font-size: 18px; font-weight: bold; color: #0f172a;">Total: ${order.currency} ${finalTotal.toLocaleString()}</p>
+          </div>
 
-                    <!-- Order Items Table -->
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 30px;">
-                      <thead>
-                        <tr>
-                          <th align="left" style="padding-bottom: 10px; font-family: sans-serif; font-size: 12px; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid #f1f5f9;">Product</th>
-                          <th align="right" style="padding-bottom: 10px; font-family: sans-serif; font-size: 12px; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid #f1f5f9;">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        ${itemsHtml}
-                      </tbody>
-                    </table>
-
-                    <!-- Totals -->
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 20px;">
-                      <tr>
-                        <td align="right">
-                          <p style="margin: 0; font-family: sans-serif; font-size: 14px; color: #64748b;">Total Paid (${order.currency})</p>
-                          <p style="margin: 5px 0 0 0; font-family: sans-serif; font-size: 22px; font-weight: bold; color: #0f172a;">
-                            ${order.currency} ${order.totalAmountLocal.toLocaleString()}
-                          </p>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <!-- Delivery Box -->
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 35px; background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
-                      <tr>
-                        <td style="padding: 20px;">
-                          <p style="margin: 0 0 10px 0; font-family: sans-serif; font-size: 12px; font-weight: bold; color: #64748b; text-transform: uppercase;">Delivery Details</p>
-                          <p style="margin: 0; font-family: sans-serif; font-size: 14px; color: #1e293b; font-weight: 600;">${order.buyer.address.line1}</p>
-                          <p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 14px; color: #64748b;">${order.buyer.address.city}, ${order.buyer.address.postalCode}</p>
-                          <p style="margin: 10px 0 0 0; font-family: sans-serif; font-size: 13px; color: #1e293b;"><strong>Phone:</strong> ${order.buyer.phone}</p>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <!-- CTA -->
-                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 40px;">
-                      <tr>
-                        <td align="center">
-                          <a href="${process.env.FRONTEND_URL}/profile" style="background-color: #0f172a; color: #ffffff; padding: 15px 30px; text-decoration: none; font-family: sans-serif; font-size: 14px; font-weight: bold; border-radius: 8px; display: inline-block;">Track Order Status</a>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-
-                <!-- Footer -->
-                <tr>
-                  <td style="padding: 30px; background-color: #f1f5f9; text-align: center;">
-                    <p style="margin: 0; font-family: sans-serif; font-size: 12px; color: #94a3b8;">
-                      Thank you for choosing Tradexon.<br>
-                      This is an automated email, please do not reply.
-                    </p>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-      </body>
-      </html>
-    `
+          <div style="background: #f8fafc; padding: 20px; margin-top: 30px; border-radius: 8px;">
+            <h4 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a;">Shipping Address</h4>
+            <p style="margin: 0; font-size: 14px; color: #475569; line-height: 1.6;">
+              ${order.buyer.address.line1}<br>
+              ${order.buyer.address.city}, ${order.buyer.address.postalCode}<br>
+              ${order.buyer.address.country}
+            </p>
+          </div>
+        </div>
+      </div>`
   };
-
   return transporter.sendMail(mailOptions);
 };
 
+/* --- EMAIL: For the Seller --- */
+const sendSellerNotificationEmail = async (order) => {
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+  });
+
+  const itemsList = order.items.map(item => {
+    const vars = (item.variations && Object.keys(item.variations).length > 0)
+      ? `(${Object.entries(item.variations).map(([k,v]) => `${v}`).join(', ')})` 
+      : '';
+    return `<li style="margin-bottom: 10px;"><strong>${item.name}</strong><br><span style="color: #64748b;">Quantity: ${item.quantity} ${vars}</span></li>`;
+  }).join('');
+
+  const mailOptions = {
+    from: `"Tradexon Sales" <${process.env.EMAIL_USER}>`,
+    to: order.sellerEmail,
+    subject: `New Sale: ${order.orderId} - Fulfill Now`,
+    html: `
+      <div style="font-family: sans-serif; padding: 25px; border: 1px solid #e2e8f0; border-radius: 12px; max-width: 600px; color: #1e293b;">
+        <div style="border-bottom: 1px solid #f1f5f9; padding-bottom: 15px; margin-bottom: 20px;">
+          <h2 style="margin: 0; color: #0f172a;">You've got an order!</h2>
+          <p style="color: #64748b; margin: 5px 0 0;">Order #${order.orderId}</p>
+        </div>
+        
+        <p>Hi <strong>${order.sellerName}</strong>,</p>
+        <p>Customer <strong>${order.buyer.name}</strong> has just purchased the following:</p>
+        
+        <ul style="padding-left: 20px;">${itemsList}</ul>
+
+        <div style="background: #fff7ed; border: 1px solid #ffedd5; padding: 15px; border-radius: 8px; margin: 20px 0;">
+          <h4 style="margin: 0 0 5px 0; color: #9a3412;">Deliver To:</h4>
+          <p style="margin: 0; font-size: 14px;">
+            ${order.buyer.address.line1}<br>
+            ${order.buyer.address.city}, ${order.buyer.address.postalCode}<br>
+            <strong>Phone:</strong> ${order.buyer.phone}
+          </p>
+        </div>
+
+        <a href="${process.env.FRONTEND_URL}/seller/orders" 
+           style="display: block; text-align: center; background: #0f172a; color: white; padding: 14px; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 25px;">
+           Process Order
+        </a>
+      </div>`
+  };
+  return transporter.sendMail(mailOptions);
+};
 /* ---------------- HELPERS ---------------- */
 
 const getCountryCode = (country) => {
@@ -363,6 +334,7 @@ export const createInvoice = async (req, res) => {
       if (process.env.NODE_ENV === "development"||process.env.NODE_ENV === "production") {
   try {
     await sendOrderConfirmationEmail(newOrder, "pending");
+    await sendSellerNotificationEmail(newOrder);
     console.log(`📧 DEV email sent to: ${newOrder.buyer.email}`);
   } catch (err) {
     console.error("❌ DEV email failed:", err);
@@ -499,6 +471,7 @@ export const safepayWebhook = async (req, res) => {
       }
       try {
         await sendOrderConfirmationEmail(order);
+        await sendSellerNotificationEmail(order);
         console.log(`✅ Confirmation sent to: ${order.buyer.email}`);
     } catch (err) {
         console.error("❌ Email failed but order is processed:", err);
