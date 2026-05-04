@@ -6,7 +6,6 @@ import nodemailer from "nodemailer";
 
 
 const sendOrderConfirmationEmail = async (order) => {
-  // Setup Transporter (Use Environment Variables)
   const transporter = nodemailer.createTransport({
     service: "gmail",
     auth: {
@@ -15,29 +14,34 @@ const sendOrderConfirmationEmail = async (order) => {
     },
   });
 
-  // Generate Items Rows dynamically
+  // Generate Items Rows dynamically with responsive table structure
   const itemsHtml = order.items.map(item => {
-    // Extract variations like { color: "white", Size: "Small" }
     const variationsText = item.variations 
       ? Object.entries(item.variations)
-          .map(([key, val]) => `<span style="color: #64748b; font-size: 11px;">${key}: ${val}</span>`)
+          .map(([key, val]) => `${key}: ${val}`)
           .join(' | ')
       : '';
 
     return `
       <tr>
-        <td style="padding: 15px 0; border-bottom: 1px solid #f1f5f9;">
-          <div style="display: flex; align-items: center;">
-            <img src="${item.image}" width="60" height="60" style="border-radius: 12px; object-fit: cover; margin-right: 15px; border: 1px solid #e2e8f0;"/>
-            <div>
-              <p style="margin: 0; font-weight: 700; color: #1e293b; font-size: 14px;">${item.name}</p>
-              ${variationsText ? `<p style="margin: 4px 0 0 0;">${variationsText}</p>` : ''}
-            </div>
-          </div>
+        <td align="left" style="padding: 15px 0; border-bottom: 1px solid #eeeeee;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+            <tr>
+              <td width="70" style="vertical-align: top;">
+                <img src="${item.image}" width="60" height="60" alt="${item.name}" style="display: block; border-radius: 8px; object-fit: cover; border: 1px solid #e2e8f0;">
+              </td>
+              <td style="padding-left: 15px; vertical-align: top;">
+                <p style="margin: 0; font-family: sans-serif; font-size: 14px; line-height: 20px; color: #333333; font-weight: bold;">${item.name}</p>
+                ${variationsText ? `<p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 12px; color: #666666;">${variationsText}</p>` : ''}
+                <p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 12px; color: #999999;">Qty: ${item.quantity}</p>
+              </td>
+            </tr>
+          </table>
         </td>
-        <td style="padding: 15px 0; border-bottom: 1px solid #f1f5f9; text-align: center; color: #64748b; font-weight: 600;">x${item.quantity}</td>
-        <td style="padding: 15px 0; border-bottom: 1px solid #f1f5f9; text-align: right; font-weight: 700; color: #0f172a;">
-          ${order.currency} ${item.priceLocal.toLocaleString()}
+        <td align="right" style="padding: 15px 0; border-bottom: 1px solid #eeeeee; vertical-align: top;">
+          <p style="margin: 0; font-family: sans-serif; font-size: 14px; font-weight: bold; color: #333333;">
+            ${order.currency} ${(item.priceLocal * item.quantity).toLocaleString()}
+          </p>
         </td>
       </tr>
     `;
@@ -46,57 +50,107 @@ const sendOrderConfirmationEmail = async (order) => {
   const mailOptions = {
     from: `"Tradexon Support" <${process.env.EMAIL_USER}>`,
     to: order.buyer.email,
-    subject: `Success! Order Confirmed #${order.orderId}`,
+    subject: `Order Confirmed: #${order.orderId || order._id.toString().slice(-6).toUpperCase()}`,
     html: `
-      <div style="background-color: #f8fafc; padding: 40px 10px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-        <div style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
-          
-          <div style="background: #0f172a; padding: 40px; text-align: center;">
-            <h1 style="color: #ffffff; margin: 0; font-size: 28px; letter-spacing: -1px;">TRADEXON</h1>
-            <div style="display: inline-block; margin-top: 15px; padding: 6px 16px; background: #10b981; color: white; border-radius: 100px; font-size: 12px; font-weight: 800; text-transform: uppercase;">
-              Payment Received
-            </div>
-          </div>
-
-          <div style="padding: 40px;">
-            <h2 style="margin: 0 0 10px 0; color: #1e293b; font-size: 20px;">Hi ${order.buyer.name},</h2>
-            <p style="margin: 0; color: #64748b; line-height: 1.6;">Your order <strong>${order.orderId}</strong> has been confirmed and is being processed by <strong>${order.sellerName}</strong>.</p>
-
-            <table style="width: 100%; border-collapse: collapse; margin-top: 30px;">
-              <thead>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Order Confirmation</title>
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #f4f7f9;">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f4f7f9;">
+          <tr>
+            <td align="center" style="padding: 20px 10px;">
+              <!-- Main Container -->
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+                
+                <!-- Header -->
                 <tr>
-                  <th style="text-align: left; font-size: 11px; text-transform: uppercase; color: #94a3b8; padding-bottom: 10px; border-bottom: 2px solid #f1f5f9;">Product</th>
-                  <th style="text-align: center; font-size: 11px; text-transform: uppercase; color: #94a3b8; padding-bottom: 10px; border-bottom: 2px solid #f1f5f9;">Qty</th>
-                  <th style="text-align: right; font-size: 11px; text-transform: uppercase; color: #94a3b8; padding-bottom: 10px; border-bottom: 2px solid #f1f5f9;">Total</th>
+                  <td align="center" style="padding: 40px 20px; background-color: #0f172a;">
+                    <h1 style="margin: 0; font-family: sans-serif; font-size: 24px; color: #ffffff; letter-spacing: 2px;">TRADEXON</h1>
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top: 15px;">
+                      <tr>
+                        <td style="background-color: #10b981; padding: 5px 15px; border-radius: 20px;">
+                          <span style="font-family: sans-serif; font-size: 11px; color: #ffffff; font-weight: bold; text-transform: uppercase;">Payment Received</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                ${itemsHtml}
-              </tbody>
-            </table>
 
-            <div style="margin-top: 20px; text-align: right;">
-              <p style="margin: 0; color: #64748b; font-size: 14px;">Total Paid (${order.currency})</p>
-              <h2 style="margin: 5px 0 0 0; color: #0f172a; font-size: 24px;">${order.currency} ${order.totalAmountLocal.toLocaleString()}</h2>
-            </div>
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 40px 30px;">
+                    <h2 style="margin: 0 0 15px 0; font-family: sans-serif; font-size: 20px; color: #1e293b;">Hi ${order.buyer.name},</h2>
+                    <p style="margin: 0; font-family: sans-serif; font-size: 15px; line-height: 24px; color: #475569;">
+                      Exciting news! Your order has been confirmed. <strong>${order.sellerName}</strong> is getting your items ready for shipment.
+                    </p>
 
-            <div style="margin-top: 40px; padding: 25px; background: #f8fafc; border-radius: 16px; border: 1px solid #e2e8f0;">
-              <h4 style="margin: 0 0 10px 0; font-size: 12px; text-transform: uppercase; color: #94a3b8;">Delivery Details</h4>
-              <p style="margin: 0; font-size: 14px; color: #1e293b; font-weight: 600;">${order.buyer.address.line1}</p>
-              <p style="margin: 4px 0 0 0; font-size: 14px; color: #64748b;">${order.buyer.address.city}, ${order.buyer.address.postalCode}</p>
-              <p style="margin: 10px 0 0 0; font-size: 13px; color: #1e293b; font-weight: 600;">📞 ${order.buyer.phone}</p>
-            </div>
+                    <!-- Order Items Table -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 30px;">
+                      <thead>
+                        <tr>
+                          <th align="left" style="padding-bottom: 10px; font-family: sans-serif; font-size: 12px; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid #f1f5f9;">Product</th>
+                          <th align="right" style="padding-bottom: 10px; font-family: sans-serif; font-size: 12px; text-transform: uppercase; color: #94a3b8; border-bottom: 2px solid #f1f5f9;">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${itemsHtml}
+                      </tbody>
+                    </table>
 
-            <div style="margin-top: 40px; text-align: center;">
-              <a href="http://localhost:3000/my-orders" style="display: inline-block; padding: 16px 32px; background: #0f172a; color: white; text-decoration: none; border-radius: 14px; font-weight: 700; font-size: 14px;">Track My Order</a>
-            </div>
-          </div>
+                    <!-- Totals -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 20px;">
+                      <tr>
+                        <td align="right">
+                          <p style="margin: 0; font-family: sans-serif; font-size: 14px; color: #64748b;">Total Paid (${order.currency})</p>
+                          <p style="margin: 5px 0 0 0; font-family: sans-serif; font-size: 22px; font-weight: bold; color: #0f172a;">
+                            ${order.currency} ${order.totalAmountLocal.toLocaleString()}
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
 
-          <div style="padding: 30px; background: #f1f5f9; text-align: center; border-top: 1px solid #e2e8f0;">
-            <p style="margin: 0; font-size: 12px; color: #94a3b8;">Thank you for shopping with Tradexon.</p>
-          </div>
-        </div>
-      </div>
+                    <!-- Delivery Box -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 35px; background-color: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;">
+                      <tr>
+                        <td style="padding: 20px;">
+                          <p style="margin: 0 0 10px 0; font-family: sans-serif; font-size: 12px; font-weight: bold; color: #64748b; text-transform: uppercase;">Delivery Details</p>
+                          <p style="margin: 0; font-family: sans-serif; font-size: 14px; color: #1e293b; font-weight: 600;">${order.buyer.address.line1}</p>
+                          <p style="margin: 4px 0 0 0; font-family: sans-serif; font-size: 14px; color: #64748b;">${order.buyer.address.city}, ${order.buyer.address.postalCode}</p>
+                          <p style="margin: 10px 0 0 0; font-family: sans-serif; font-size: 13px; color: #1e293b;"><strong>Phone:</strong> ${order.buyer.phone}</p>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- CTA -->
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-top: 40px;">
+                      <tr>
+                        <td align="center">
+                          <a href="${process.env.FRONTEND_URL}/profile" style="background-color: #0f172a; color: #ffffff; padding: 15px 30px; text-decoration: none; font-family: sans-serif; font-size: 14px; font-weight: bold; border-radius: 8px; display: inline-block;">Track Order Status</a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="padding: 30px; background-color: #f1f5f9; text-align: center;">
+                    <p style="margin: 0; font-family: sans-serif; font-size: 12px; color: #94a3b8;">
+                      Thank you for choosing Tradexon.<br>
+                      This is an automated email, please do not reply.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
     `
   };
 
