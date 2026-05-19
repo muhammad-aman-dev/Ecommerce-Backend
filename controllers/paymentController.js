@@ -164,7 +164,7 @@ const sendSellerNotificationEmail = async (order) => {
           </p>
         </div>
 
-        <a href="${process.env.FRONTEND_URL}/seller/orders" 
+        <a href="${process.env.FRONTEND_URL}/seller/dashboard/orders" 
            style="display: block; text-align: center; background: #0f172a; color: white; padding: 14px; text-decoration: none; border-radius: 8px; font-weight: bold; margin-top: 25px;">
            Process Order
         </a>
