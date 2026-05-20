@@ -1065,6 +1065,7 @@ export const getProductsByCategoryCursor = async (req, res) => {
   }
 };
 
+
 export const getSitemapProducts = async (req, res) => {
   try {
     const products = await Product.find(
@@ -1075,23 +1076,18 @@ export const getSitemapProducts = async (req, res) => {
       }
     ).lean();
 
-    const formattedProducts = products.map((product) => ({
-      id: product._id,
-      name: product.name,
-      updatedAt: product.updatedAt,
-    }));
-
     res.json({
       success: true,
-      count: formattedProducts.length,
-      products: formattedProducts,
+      products: products.map((p) => ({
+        id: p._id.toString(),
+        name: p.name,
+        updatedAt: p.updatedAt,
+      })),
     });
-  } catch (error) {
-    console.error("Sitemap Products Error:", error);
-
+  } catch (err) {
     res.status(500).json({
       success: false,
-      message: "Failed to fetch sitemap products",
+      message: "Failed to generate sitemap data",
     });
   }
 };
