@@ -1065,4 +1065,33 @@ export const getProductsByCategoryCursor = async (req, res) => {
   }
 };
 
+export const getSitemapProducts = async (req, res) => {
+  try {
+    const products = await Product.find(
+      { status: "Active" },
+      {
+        name: 1,
+        updatedAt: 1,
+      }
+    ).lean();
 
+    const formattedProducts = products.map((product) => ({
+      id: product._id,
+      name: product.name,
+      updatedAt: product.updatedAt,
+    }));
+
+    res.json({
+      success: true,
+      count: formattedProducts.length,
+      products: formattedProducts,
+    });
+  } catch (error) {
+    console.error("Sitemap Products Error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch sitemap products",
+    });
+  }
+};

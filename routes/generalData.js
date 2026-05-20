@@ -1,7 +1,7 @@
 import express from "express";
 import { getCategories } from "../controllers/categoryController.js";
 import { getBanners, getDiscount, getStorefrontData } from "../controllers/generalController.js";
-import { getProductById, getHomepageProducts, getProductsByCategory, searchProducts, getFeaturedProductsCursor, getTrendingProductsCursor, getBestSellersCursor, getNewArrivalsCursor, getProductsByCategoryCursor } from "../controllers/productsController.js";
+import { getProductById, getHomepageProducts, getProductsByCategory, searchProducts, getFeaturedProductsCursor, getTrendingProductsCursor, getBestSellersCursor, getNewArrivalsCursor, getProductsByCategoryCursor, getSitemapProducts } from "../controllers/productsController.js";
 import { addContact } from "../controllers/helpController.js";
 
 const generalRouter = express.Router();
@@ -20,6 +20,7 @@ generalRouter.get("/products/best-sellers", getBestSellersCursor)
 generalRouter.get("/products/new-arrivals", getNewArrivalsCursor)
 generalRouter.post("/products/category-products", getProductsByCategoryCursor)
 generalRouter.get("/seller/:id", getStorefrontData);
+generalRouter.get("/sitemap-products", getSitemapProducts);
 
 
 export default generalRouter;
