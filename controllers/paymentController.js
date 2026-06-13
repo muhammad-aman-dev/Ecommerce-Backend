@@ -1,5 +1,4 @@
 import Order from "../models/Orders.js";
-import safepayClient from "../config/safePay.js";
 import Seller from "../models/Seller.js"
 import Product from "../models/Products.js"
 import nodemailer from "nodemailer";
@@ -244,20 +243,55 @@ const groupItemsBySeller = (items) => {
   }, {});
 };
 
-const getOrCreateCustomer = async (buyer) => {
-  const customer = await safepayClient.customers.object.create({
-    first_name: buyer.firstName || "Guest",
-    last_name: buyer.lastName || "User",
-    email: buyer.email,
-    phone_number: buyer.phone || "+920000000000",
-    country: getCountryCode(buyer.country),
-    is_guest: true,
+const createPayment = async (basketId, amount, currency) => {
+  // 1. GET ACCESS TOKEN FROM PAYFAST
+  const body = new URLSearchParams({
+    MERCHANT_ID: process.env.PAYFAST_MERCHANT_ID,
+    SECURED_KEY: process.env.PAYFAST_SECURED_KEY,
+    BASKET_ID: basketId,
+    TXNAMT: amount,
+    CURRENCY_CODE: currency,
   });
 
-  return customer.data;
-};
+  const response = await fetch(process.env.PAYFAST_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
 
-/* ---------------- CREATE INVOICE ---------------- */
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`PayFast token request failed: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const token = data.ACCESS_TOKEN;
+
+  return {
+    actionUrl: process.env.PAYFAST_POST_URL,
+    basketId,
+    token,
+    merchantId: process.env.PAYFAST_MERCHANT_ID,
+    amount,
+    fields: {
+      MERCHANT_ID: process.env.PAYFAST_MERCHANT_ID,
+      TOKEN: token,
+      BASKET_ID: basketId,
+      TXNAMT: amount,
+      CURRENCY_CODE: "PKR",
+      SUCCESS_URL: `${process.env.FRONTEND_URL}/payfast/return?result=success&basketId=${basketId}`,
+      FAILURE_URL: `${process.env.FRONTEND_URL}/payfast/return?result=failure&basketId=${basketId}`,
+      CHECKOUT_URL: `${process.env.BACKEND_URL}/payment/webhook/payfast-direct-call`,
+
+      ORDER_DATE: new Date().toISOString(),
+      TXNDESC: "Package Purchase",
+      PROCCODE: "00",
+      TRAN_TYPE: "ECOMM_PURCHASE",
+    },
+  };
+};
 
 export const createInvoice = async (req, res) => {
   try {
@@ -275,7 +309,6 @@ export const createInvoice = async (req, res) => {
       buyer.fullName || `${buyer.firstName || ""} ${buyer.lastName || ""}`.trim();
 
     const normalizedItems = normalizeItems(items, exchangeRates);
-    const customer = await getOrCreateCustomer(buyer);
 
     const checkoutCurrency = currency || "PKR";
     const checkoutAmount =
@@ -285,40 +318,11 @@ export const createInvoice = async (req, res) => {
       return res.status(400).json({ message: "Invalid total amount" });
     }
 
-    const sessionResponse = await safepayClient.payments.session.setup({
-      merchant_api_key: "sec_ae9edbd5-ce6f-48fa-ad3f-539195febc04",
-      user: customer.token,
-      entry_mode: "raw",
-      intent: "CYBERSOURCE",
-      mode: "payment",
-      currency: checkoutCurrency,
-      amount: Math.round(checkoutAmount * 100),
-      metadata: {
-        order_id: `order_${buyer.userId || buyer.email || Date.now()}`,
-      },
-      include_fees: false,
-      environment: "sandbox",
-    });
 
-    const authResponse = await safepayClient.client.passport.create({
-      user_id: customer.token,
-    });
-
-    const tbt = authResponse?.data;
-    const trackerToken = sessionResponse?.data?.tracker?.token;
-
-    if (!trackerToken) {
-      throw new Error("Failed to create tracker");
-    }
-
-    const checkoutURL = await safepayClient.checkout.createCheckoutUrl({
-      env: "sandbox",
-      tbt,
-      tracker: trackerToken,
-      source: "popup",
-      redirect_url: `http://localhost:3000/order/success`,
-      cancel_url: `http://localhost:3000/order/cancel`,
-    });
+    const paymentAmount = currency == "USD" ? totalUSD : totalAmount;
+    const random7Digits = Math.floor(1000000 + Math.random() * 9000000);
+    const basketId = `ORDER-${random7Digits}-${Date.now()}`;
+    
 
     const grouped = groupItemsBySeller(normalizedItems);
     const createdOrders = [];
@@ -366,16 +370,15 @@ export const createInvoice = async (req, res) => {
         exchangeRates,
 
         payment: {
-          paymentId: trackerToken,
-          paymentUrl: checkoutURL,
-          status: process.env.NODE_ENV === "development"||process.env.NODE_ENV === "production"?"paid":"pending",
+          paymentId: basketId,
+          status: process.env.NODE_ENV === "development"?"paid":"pending",
         },
       });
 
       await newOrder.save();
       createdOrders.push(newOrder);
 
-      if (process.env.NODE_ENV === "development"||process.env.NODE_ENV === "production") {
+      if (process.env.NODE_ENV === "development") {
   try {
     await sendOrderConfirmationEmail(newOrder, "pending");
     await sendSellerNotificationEmail(newOrder);
@@ -387,8 +390,10 @@ export const createInvoice = async (req, res) => {
     
     }
 
+    const payment = await createPayment(basketId, paymentAmount, currency);
+
     return res.status(200).json({
-      paymentUrl: checkoutURL,
+      payment,
       orderIds: createdOrders.map((o) => o._id.toString()),
     });
   } catch (error) {
@@ -397,138 +402,202 @@ export const createInvoice = async (req, res) => {
   }
 };
 
-/* ---------------- WEBHOOK ---------------- */
 
-export const safepayWebhook = async (req, res) => {
-  try {
-    console.log("📩 Webhook received:", JSON.stringify(req.body, null, 2));
+const processPaidOrders = async (basketId) => {
+  const orders = await Order.find({
+    "payment.paymentId": basketId,
+  });
 
-    const tracker = req.body?.data?.tracker;
+  if (!orders.length) return;
 
-    if (!tracker?.token) {
-      console.log("❌ No tracker token found");
-      return res.status(400).send("No tracker found");
-    }
+  for (const order of orders) {
+    // ❌ prevent duplicate processing
+    if (order.payment?.status === "paid") continue;
 
-    console.log("🔑 Token:", tracker.token);
+    // ✅ mark order paid
+    order.payment.status = "paid";
+    order.payment.paidAt = new Date();
+    order.payment.amountPaidUSD = order.totalAmountUSD;
+    order.buyerStatus = "pending";
 
-    let paymentStatus;
+    await order.save();
 
-    if (process.env.NODE_ENV === "development") {
-      console.log("⚠️ DEV MODE: Mocking payment as PAID");
-      paymentStatus = "paid";
-    } else {
-      const verification = await safepayClient.reporter.payments.fetch(tracker.token);
-      paymentStatus = String(verification?.data?.status || "").toLowerCase();
-    }
+    // ---------------- SELLER UPDATE ----------------
+    const sellerEmail = order.sellerEmail;
+    if (sellerEmail) {
+      const totalItems = order.items.reduce(
+        (sum, item) => sum + Number(item.quantity || 1),
+        0
+      );
 
-    console.log("💳 Payment Status:", paymentStatus);
-
-    if (paymentStatus !== "paid") {
-      console.log("⛔ Payment not completed");
-      return res.sendStatus(200);
-    }
-
-    // ✅ Find orders linked to this payment
-    const orders = await Order.find({
-      "payment.paymentId": tracker.token,
-    });
-
-    console.log("📦 Orders found:", orders.length);
-
-    if (!orders.length) {
-      console.log("❌ No orders found for this token");
-      return res.sendStatus(200);
-    }
-
-    for (const order of orders) {
-      console.log("➡️ Processing order:", order.orderId);
-
-      // ✅ Prevent duplicate processing
-      if (order.payment?.status === "paid") {
-        console.log("⚠️ Already processed, skipping:", order.orderId);
-        continue;
-      }
-
-      // ✅ Mark order as paid
-      order.payment.status = "paid";
-      order.payment.paidAt = new Date();
-      order.payment.amountPaidUSD = order.totalAmountUSD;
-      order.buyerStatus = "pending";
-
-      await order.save();
-
-      const sellerEmail = order.sellerEmail;
-      if (!sellerEmail) {
-        console.log("❌ Missing sellerEmail in order:", order.orderId);
-        continue;
-      }
-
-      // ✅ Increment seller sales (number of items sold)
-      const totalItems = order.items.reduce((sum, item) => sum + Number(item.quantity || 1), 0);
       await Seller.updateOne(
         { email: sellerEmail },
         { $inc: { sales: totalItems } }
       );
+    }
 
-      // ✅ Update product stock & sales
-      for (const item of order.items) {
-        const product = await Product.findOne({ productId: item.productId });
-        if (!product) {
-          console.log("⚠️ Product not found:", item.productId);
-          continue;
-        }
+    // ---------------- STOCK UPDATE ----------------
+    for (const item of order.items) {
+      const product = await Product.findOne({ productId: item.productId });
+      if (!product) continue;
 
-        const qty = Number(item.quantity) || 1;
+      const qty = Number(item.quantity) || 1;
 
-        // Base stock
-        product.stock = Math.max(0, product.stock - qty);
+      // base stock
+      product.stock = Math.max(0, product.stock - qty);
 
-        // Variation stock
-        if (product.variations?.length && item.variations) {
-          for (const [option, value] of Object.entries(item.variations)) {
-            const variation = product.variations.find(
-              (v) => v.option.toLowerCase() === option.toLowerCase()
-            );
+      // variation stock
+      if (product.variations?.length && item.variations) {
+        for (const [option, value] of Object.entries(item.variations)) {
+          const variation = product.variations.find(
+            (v) => v.option.toLowerCase() === option.toLowerCase()
+          );
 
-            if (!variation) continue;
+          if (!variation) continue;
 
-            const val = variation.values.find(
-              (v) => v.value.toLowerCase() === String(value).toLowerCase()
-            );
+          const val = variation.values.find(
+            (v) => v.value.toLowerCase() === String(value).toLowerCase()
+          );
 
-            if (val) {
-              val.stock = Math.max(0, val.stock - qty);
-            }
+          if (val) {
+            val.stock = Math.max(0, val.stock - qty);
           }
         }
-
-        // Sales count
-        product.salesCount = (product.salesCount || 0) + qty;
-
-        // Stock status
-        if (product.stock <= 0) {
-          product.status = "Out Of Stock";
-        }
-
-        await product.save();
       }
-      try {
-        await sendOrderConfirmationEmail(order);
-        await sendSellerNotificationEmail(order);
-        console.log(`✅ Confirmation sent to: ${order.buyer.email}`);
+
+      product.salesCount = (product.salesCount || 0) + qty;
+
+      if (product.stock <= 0) {
+        product.status = "Out Of Stock";
+      }
+
+      await product.save();
+    }
+
+    // ---------------- EMAILS ----------------
+    try {
+      await sendOrderConfirmationEmail(order);
+      await sendSellerNotificationEmail(order);
     } catch (err) {
-        console.error("❌ Email failed but order is processed:", err);
+      console.error("Email error:", err.message);
     }
-    }
-
-    console.log("✅ Webhook processing completed (sales & stock updated)");
-
-    // 💡 No revenue/remainingPayout update here — will do on delivery
-
-    return res.sendStatus(200);
-  } catch (err) {
-    console.error("❌ Webhook Error:", err);
-    return res.status(500).send("Webhook Failed");
   }
 };
+
+/* ---------------- WEBHOOK CONTROLLER ---------------- */
+
+export const payfastWebhook = async (req, res) => {
+  try {
+    console.log("📩 PayFast webhook received");
+    
+    const { basketId, transactionAmount, orderDate } = req.query;
+
+    
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || 
+    req.socket.remoteAddress || 
+    req.ip || 
+    "127.0.0.1";
+    
+    const body = new URLSearchParams({
+      merchant_id: process.env.PAYFAST_MERCHANT_ID,
+      secured_key: process.env.PAYFAST_SECURED_KEY,
+      grant_type: "client_credentials",
+      customer_ip: clientIp
+    });
+  
+    const response = await fetch(`${process.env.PAYFAST_API_BASE_URL}/token`, {
+      method: "POST",
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Cache-Control': 'no-cache'
+      },
+      body: body.toString(),
+    });
+  
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`PayFast token request failed: ${errorText}`);
+    }
+  
+    const data = await response.json();
+    const accessToken = data.token;
+    
+    if (!basketId) {
+      return res.status(400).json({
+        success: false,
+        message: "Basket ID missing",
+      });
+    }
+
+
+    if (!accessToken) {
+      return res.status(500).json({
+        success: false,
+        message: "Access token not found",
+      });
+    }
+
+    console.log(accessToken)
+
+    const txnRes = await fetch(
+      `${process.env.PAYFAST_API_BASE_URL}/transaction/basket_id/${basketId}?order_date=${orderDate}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      } 
+    );
+ 
+    console.log(txnRes); 
+
+    if (!txnRes.ok) {
+      throw new Error("Failed to verify transaction");
+    }
+
+    const paymentData = await txnRes.json();
+    const code = paymentData?.response_code;
+
+    let status = "failed";
+
+    if (code === "00" || code === "79") {
+      status = "paid";
+    } else if (code === "001" || code === "002") {
+      status = "pending";
+    }
+
+    console.log("Payment status:", status);
+
+    if (status !== "paid") {
+      return res.status(200).json({
+        success: true,
+        status, 
+        basketId,
+        payment: paymentData,
+      });
+    }
+
+    await processPaidOrders(basketId);
+
+    console.log("✅ Orders processed successfully");
+
+    return res.status(200).json({
+      success: true,
+      status: "paid",
+      basketId,
+    });
+  } catch (error) {
+    console.error("❌ Webhook Error:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Webhook failed",
+      error: error.message,
+    });
+  }
+};
+
+
+export const payfastdirectWebhook = async (req, res) =>{
+
+}

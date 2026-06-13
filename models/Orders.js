@@ -90,9 +90,8 @@ refundStatus: {
 },
     // Payment details (Safepay integration)
     payment: {
-      provider: { type: String, default: "safepay" },
+      provider: { type: String, default: "payFast" },
       paymentId: { type: String, required: true }, // Safepay invoice token
-      paymentUrl: { type: String, required: true }, // Safepay checkout URL
       status: {
         type: String,
         enum: ["pending", "paid", "failed"],

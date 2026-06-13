@@ -1,13 +1,13 @@
 import express from "express";
 import {
   createInvoice,
-  safepayWebhook,
+  payfastWebhook,
 } from "../controllers/paymentController.js";
 
 const paymentRouter = express.Router();
 
 paymentRouter.post("/create-invoice", createInvoice);
 
-paymentRouter.post("/webhook/safepay", safepayWebhook);
+paymentRouter.get("/webhook/payfast", payfastWebhook);
 
 export default paymentRouter;
