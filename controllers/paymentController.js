@@ -2,6 +2,7 @@ import Order from "../models/Orders.js";
 import Seller from "../models/Seller.js"
 import Product from "../models/Products.js"
 import nodemailer from "nodemailer";
+import crypto from 'crypto';
 
 
 /* --- EMAIL: For the Buyer --- */
@@ -283,7 +284,7 @@ const createPayment = async (basketId, amount, currency) => {
       CURRENCY_CODE: "PKR",
       SUCCESS_URL: `${process.env.FRONTEND_URL}/payfast/return?result=success&basketId=${basketId}`,
       FAILURE_URL: `${process.env.FRONTEND_URL}/payfast/return?result=failure&basketId=${basketId}`,
-      CHECKOUT_URL: `${process.env.BACKEND_URL}/payment/webhook/payfast-direct-call`,
+      CHECKOUT_URL: `${process.env.BACKEND_URL}/payment/webhook/payfast-direct`,
 
       ORDER_DATE: new Date().toISOString(),
       TXNDESC: "Package Purchase",
@@ -371,23 +372,13 @@ export const createInvoice = async (req, res) => {
 
         payment: {
           paymentId: basketId,
-          status: process.env.NODE_ENV === "development"?"paid":"pending",
+          status:"pending",
         },
       });
 
       await newOrder.save();
       createdOrders.push(newOrder);
-
-      if (process.env.NODE_ENV === "development") {
-  try {
-    await sendOrderConfirmationEmail(newOrder, "pending");
-    await sendSellerNotificationEmail(newOrder);
-    console.log(`📧 DEV email sent to: ${newOrder.buyer.email}`);
-  } catch (err) {
-    console.error("❌ DEV email failed:", err);
-  }
-}
-    
+   
     }
 
     const payment = await createPayment(basketId, paymentAmount, currency);
@@ -486,118 +477,250 @@ const processPaidOrders = async (basketId) => {
 
 /* ---------------- WEBHOOK CONTROLLER ---------------- */
 
-export const payfastWebhook = async (req, res) => {
-  try {
-    console.log("📩 PayFast webhook received");
+// export const payfastWebhook = async (req, res) => {
+//   try {
+//     console.log("📩 PayFast webhook received");
     
-    const { basketId, transactionAmount, orderDate } = req.query;
+//     const { basketId, transactionAmount, orderDate } = req.query;
 
     
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || 
-    req.socket.remoteAddress || 
-    req.ip || 
-    "127.0.0.1";
+//     const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || 
+//     req.socket.remoteAddress || 
+//     req.ip || 
+//     "127.0.0.1";
     
-    const body = new URLSearchParams({
-      merchant_id: process.env.PAYFAST_MERCHANT_ID,
-      secured_key: process.env.PAYFAST_SECURED_KEY,
-      grant_type: "client_credentials",
-      customer_ip: clientIp
-    });
+//     const body = new URLSearchParams({
+//       merchant_id: process.env.PAYFAST_MERCHANT_ID,
+//       secured_key: process.env.PAYFAST_SECURED_KEY,
+//       grant_type: "client_credentials",
+//       customer_ip: clientIp
+//     });
   
-    const response = await fetch(`${process.env.PAYFAST_API_BASE_URL}/token`, {
-      method: "POST",
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Cache-Control': 'no-cache'
-      },
-      body: body.toString(),
-    });
+//     const response = await fetch(`${process.env.PAYFAST_API_BASE_URL}/token`, {
+//       method: "POST",
+//       headers: {
+//         'Content-Type': 'application/x-www-form-urlencoded',
+//         'Cache-Control': 'no-cache'
+//       },
+//       body: body.toString(),
+//     });
   
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`PayFast token request failed: ${errorText}`);
-    }
+//     if (!response.ok) {
+//       const errorText = await response.text();
+//       throw new Error(`PayFast token request failed: ${errorText}`);
+//     }
   
-    const data = await response.json();
-    const accessToken = data.token;
+//     const data = await response.json();
+//     const accessToken = data.token;
     
-    if (!basketId) {
-      return res.status(400).json({
-        success: false,
-        message: "Basket ID missing",
-      });
-    }
+//     if (!basketId) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Basket ID missing",
+//       });
+//     }
 
 
-    if (!accessToken) {
-      return res.status(500).json({
-        success: false,
-        message: "Access token not found",
-      });
-    }
+//     if (!accessToken) {
+//       return res.status(500).json({
+//         success: false,
+//         message: "Access token not found",
+//       });
+//     }
 
-    console.log(accessToken)
+//     console.log(accessToken)
 
-    const txnRes = await fetch(
-      `${process.env.PAYFAST_API_BASE_URL}/transaction/basket_id/${basketId}?order_date=${orderDate}`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      } 
-    );
+//     const txnRes = await fetch(
+//       `${process.env.PAYFAST_API_BASE_URL}/transaction/basket_id/${basketId}?order_date=${orderDate}`,
+//       {
+//         method: "GET",
+//         headers: {
+//           Authorization: `Bearer ${accessToken}`,
+//         },
+//       } 
+//     );
  
-    console.log(txnRes); 
+//     console.log(txnRes); 
 
-    if (!txnRes.ok) {
-      throw new Error("Failed to verify transaction");
+//     if (!txnRes.ok) {
+//       throw new Error("Failed to verify transaction");
+//     }
+
+//     const paymentData = await txnRes.json();
+//     const code = paymentData?.response_code;
+
+//     let status = "failed";
+
+//     if (code === "00" || code === "79") {
+//       status = "paid";
+//     } else if (code === "001" || code === "002") {
+//       status = "pending";
+//     }
+
+//     console.log("Payment status:", status);
+
+//     if (status !== "paid") {
+//       return res.status(200).json({
+//         success: true,
+//         status, 
+//         basketId,
+//         payment: paymentData,
+//       });
+//     }
+
+//     await processPaidOrders(basketId);
+
+//     console.log("✅ Orders processed successfully");
+
+//     return res.status(200).json({
+//       success: true,
+//       status: "paid",
+//       basketId,
+//     });
+//   } catch (error) {
+//     console.error("❌ Webhook Error:", error.message);
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Webhook failed",
+//       error: error.message,
+//     });
+//   }
+// };
+
+
+export const payfastdirectWebhook = async (req, res) => {
+  try {
+    const {
+      basket_id,
+      transaction_id,
+      err_code,
+      validation_hash,
+      transaction_amount,
+      PaymentName
+    } = req.body;
+
+    console.log("📩 Direct webhook received:", basket_id);
+
+    if (!basket_id) {
+      return res.status(400).send("Missing basket_id");
     }
 
-    const paymentData = await txnRes.json();
-    const code = paymentData?.response_code;
+    // ---------------- HASH VALIDATION ----------------
+    const calculatedHash = crypto
+      .createHash("sha256")
+      .update(
+        `${basket_id}|${process.env.PAYFAST_SECURED_KEY}|${process.env.PAYFAST_MERCHANT_ID}|${err_code}`
+      )
+      .digest("hex");
 
-    let status = "failed";
+      console.log(calculatedHash);
 
-    if (code === "00" || code === "79") {
-      status = "paid";
-    } else if (code === "001" || code === "002") {
-      status = "pending";
+    const hashValid =
+      calculatedHash.toLowerCase() === (validation_hash || "").toLowerCase();
+
+      console.log(hashValid);
+
+    if (!hashValid) {
+      console.log("❌ Invalid hash");
+      return res.status(400).send("Invalid hash");
     }
 
-    console.log("Payment status:", status);
-
-    if (status !== "paid") {
-      return res.status(200).json({
-        success: true,
-        status, 
-        basketId,
-        payment: paymentData,
-      });
+    // ---------------- PAYMENT CHECK ----------------
+    if (err_code !== "000" && err_code !== "00") {
+      console.log("❌ Payment not successful:", err_code);
+      return res.status(200).send("NOT PAID");
     }
 
-    await processPaidOrders(basketId);
-
-    console.log("✅ Orders processed successfully");
-
-    return res.status(200).json({
-      success: true,
-      status: "paid",
-      basketId,
+    // ---------------- FIND ORDERS ----------------
+    const orders = await Order.find({
+      "payment.paymentId": basket_id,
     });
+
+    if (!orders.length) {
+      console.log("⚠️ No orders found for basket:", basket_id);
+      return res.status(200).send("NO ORDERS");
+    }
+
+    // ---------------- PROCESS ORDERS ----------------
+    for (const order of orders) {
+      // idempotency check
+      if (order.payment?.status === "paid") {
+        continue;
+      }
+
+      // mark paid
+      order.payment.status = "paid";
+      order.payment.paidAt = new Date();
+      order.payment.transactionId = transaction_id;
+      order.payment.amountPaid = transaction_amount;
+      order.payment.method = PaymentName
+
+      order.buyerStatus = "pending";
+
+      await order.save();
+
+      // ---------------- SELLER UPDATE ----------------
+      const totalItems = order.items.reduce(
+        (sum, item) => sum + Number(item.quantity || 1),
+        0
+      );
+
+      await Seller.updateOne(
+        { email: order.sellerEmail },
+        { $inc: { sales: totalItems } }
+      );
+
+      // ---------------- STOCK UPDATE ----------------
+      for (const item of order.items) {
+        const product = await Product.findOne({ productId: item.productId });
+        if (!product) continue;
+
+        const qty = Number(item.quantity || 1);
+
+        product.stock = Math.max(0, product.stock - qty);
+
+        if (product.variations?.length && item.variations) {
+          for (const [option, value] of Object.entries(item.variations)) {
+            const variation = product.variations.find(
+              (v) => v.option.toLowerCase() === option.toLowerCase()
+            );
+
+            if (!variation) continue;
+
+            const val = variation.values.find(
+              (v) => v.value.toLowerCase() === String(value).toLowerCase()
+            );
+
+            if (val) {
+              val.stock = Math.max(0, val.stock - qty);
+            }
+          }
+        }
+
+        product.salesCount = (product.salesCount || 0) + qty;
+
+        if (product.stock <= 0) {
+          product.status = "Out Of Stock";
+        }
+
+        await product.save();
+      }
+
+      // ---------------- EMAILS ----------------
+      try {
+        await sendOrderConfirmationEmail(order);
+        await sendSellerNotificationEmail(order);
+      } catch (err) {
+        console.error("Email error:", err.message);
+      }
+    }
+
+    console.log("✅ Direct webhook processed successfully");
+
+    return res.status(200).send("OK");
   } catch (error) {
-    console.error("❌ Webhook Error:", error.message);
-
-    return res.status(500).json({
-      success: false,
-      message: "Webhook failed",
-      error: error.message,
-    });
+    console.error("❌ Direct webhook error:", error);
+    return res.status(500).send("FAILED");
   }
 };
-
-
-export const payfastdirectWebhook = async (req, res) =>{
-
-}

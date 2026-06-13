@@ -97,7 +97,7 @@ refundStatus: {
         enum: ["pending", "paid", "failed"],
         default: "pending",
       },
-      method: { type: String, default: "card" },
+      method: { type: String, default: "Not Specified" },
       amountPaidUSD: Number,
       amountPaidLocal: Number,
       paidAt: Date,
