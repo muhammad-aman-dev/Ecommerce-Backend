@@ -285,7 +285,6 @@ const createPayment = async (basketId, amount, currency) => {
       SUCCESS_URL: `${process.env.FRONTEND_URL}/payfast/return?result=success&basketId=${basketId}`,
       FAILURE_URL: `${process.env.FRONTEND_URL}/payfast/return?result=failure&basketId=${basketId}`,
       CHECKOUT_URL: `${process.env.BACKEND_URL}/payment/webhook/payfast-direct`,
-
       ORDER_DATE: new Date().toISOString(),
       TXNDESC: "Package Purchase",
       PROCCODE: "00",
@@ -297,14 +296,13 @@ const createPayment = async (basketId, amount, currency) => {
 export const createInvoice = async (req, res) => {
   try {
     const { items, buyer, currency, totalAmount, exchangeRates, totalUSD } = req.body;
-
     if (!buyer) {
       return res.status(400).json({ message: "Buyer data is required" });
     }
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "Items are required" });
-    }
+    } 
 
     const fullName =
       buyer.fullName || `${buyer.firstName || ""} ${buyer.lastName || ""}`.trim();
@@ -319,8 +317,11 @@ export const createInvoice = async (req, res) => {
       return res.status(400).json({ message: "Invalid total amount" });
     }
 
-
-    const paymentAmount = currency == "USD" ? totalUSD : totalAmount;
+ 
+    const paymentAmount =
+  currency === "USD"
+    ? Number((totalUSD * exchangeRates?.PKR).toFixed(2))
+    : Number(totalAmount);
     const random7Digits = Math.floor(1000000 + Math.random() * 9000000);
     const basketId = `ORDER-${random7Digits}-${Date.now()}`;
     
@@ -381,7 +382,7 @@ export const createInvoice = async (req, res) => {
    
     }
 
-    const payment = await createPayment(basketId, paymentAmount, currency);
+    const payment = await createPayment(basketId, paymentAmount, "PKR");
 
     return res.status(200).json({
       payment,
@@ -600,6 +601,7 @@ export const payfastdirectWebhook = async (req, res) => {
       PaymentName
     } = req.body;
 
+    console.log(basket_id,transaction_id,transaction_amount,err_code)
     console.log("📩 Direct webhook received:", basket_id);
 
     if (!basket_id) {
@@ -722,5 +724,53 @@ export const payfastdirectWebhook = async (req, res) => {
   } catch (error) {
     console.error("❌ Direct webhook error:", error);
     return res.status(500).send("FAILED");
+  }
+};
+
+export const handlePaymentCallback = async (req, res) => {
+  try {
+    const { basketId, err_code } = req.body;
+
+    if (!basketId || !err_code) {
+      return res.status(400).json({
+        success: false,
+        message: "basketId and err_code are required",
+      });
+    }
+
+    const successCodes = ["000", "00"];
+
+    if (successCodes.includes(err_code)) {
+      await Order.updateMany(
+        { "payment.paymentId": basketId },
+        {
+          $set: {
+            "payment.status": "paid",
+            "payment.paidAt": new Date(),
+          },
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Transaction successful.",
+      });
+    }
+
+    const result = await Order.deleteMany({
+      "payment.paymentId": basketId,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `${result.deletedCount} order(s) deleted due to failed transaction.`,
+    });
+  } catch (error) {
+    console.error("Payment callback error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 };

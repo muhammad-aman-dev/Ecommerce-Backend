@@ -88,10 +88,9 @@ refundStatus: {
   enum: ["none", "requested", "approved", "rejected"],
   default: "none"
 },
-    // Payment details (Safepay integration)
     payment: {
       provider: { type: String, default: "payFast" },
-      paymentId: { type: String, required: true }, // Safepay invoice token
+      paymentId: { type: String, required: true }, 
       status: {
         type: String,
         enum: ["pending", "paid", "failed"],
