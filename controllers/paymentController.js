@@ -288,7 +288,7 @@ const createPayment = async (basketId, amount, currency) => {
       ORDER_DATE: new Date().toISOString(),
       TXNDESC: "Package Purchase",
       PROCCODE: "00",
-      TRAN_TYPE: "ECOMM_PURCHASE",
+      TRAN_TYPE: "ECOMM_PURCHASE", 
     },
   };
 };

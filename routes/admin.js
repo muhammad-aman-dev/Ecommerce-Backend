@@ -6,6 +6,7 @@ import { addCategory, removeCategory } from "../controllers/categoryController.j
 import upload from "../middlewares/multerMiddleware.js";
 import { getPendingContacts, updateContactStatus } from "../controllers/helpController.js";
 import { markAsFeatured, removeFeatured, getFeaturedForAdmin } from "../controllers/productsController.js";
+import { getAdminRejectedOrders, processRejectedOrderRefund } from "../controllers/ordersController.js";
 
 const adminRouter = express.Router();
 
@@ -54,4 +55,7 @@ adminRouter.put("/support/update/:id", adminAuth, updateComplaintStatus);
 // Admin process a specific request
 adminRouter.patch("/process-refund/:id", adminAuth, processRefund);
 
-export default adminRouter;
+adminRouter.get("/rejected-orders", adminAuth, getAdminRejectedOrders);
+adminRouter.patch("/process-rejected-refund/:id", adminAuth, processRejectedOrderRefund);
+
+export default adminRouter; 

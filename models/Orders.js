@@ -88,12 +88,22 @@ refundStatus: {
   enum: ["none", "requested", "approved", "rejected"],
   default: "none"
 },
+isRejectedBySeller: { type: Boolean, default: false },
+sellerRejectionRefundStatus: {
+  type: String,
+  enum: [
+    "not_required",
+    "pending",
+    "refunded"
+  ],
+  default: "not_required"
+},
     payment: {
       provider: { type: String, default: "payFast" },
       paymentId: { type: String, required: true }, 
       status: {
         type: String,
-        enum: ["pending", "paid", "failed"],
+        enum: ["pending", "paid", "failed", "refunded"],
         default: "pending",
       },
       method: { type: String, default: "Not Specified" },

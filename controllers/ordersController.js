@@ -99,6 +99,12 @@ export const updateSellerStatus = async (req, res) => {
       if (order.sellerEmail !== sellerEmail) {
       return res.status(403).json({ success: false, message: "Unauthorized access" });
     }
+    if (order.isRejectedBySeller) {
+  return res.status(400).json({
+    success: false,
+    message: "This order has already been rejected."
+  });
+}
 
     // NEW: Logic for Rejecting (Cancelled)
     if (sellerStatus === "cancelled") {
@@ -109,7 +115,9 @@ export const updateSellerStatus = async (req, res) => {
           message: "Cannot reject an order that is already processed or shipped." 
         });
       }
-      order.cancelledAt = new Date(); // Track when it was rejected
+      order.isRejectedBySeller = true;
+      order.sellerRejectionRefundStatus = "pending";
+      order.cancelledAt = new Date(); 
     }
     // Logic for Shipping
     if (sellerStatus === "shipped") {
@@ -141,7 +149,7 @@ export const updateSellerStatus = async (req, res) => {
 
 export const requestRefundByBuyer = async (req, res) => {
   try {
-    const { reason, message } = req.body; // Incoming from Swal
+    const { reason, message } = req.body; 
     const order = await Order.findById(req.params.orderId);
 
     if (!order) {
@@ -195,5 +203,69 @@ export const requestRefundByBuyer = async (req, res) => {
     
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+export const getAdminRejectedOrders = async (req, res) => {
+  try {
+    // Find all orders where a seller chose "cancelled" 
+    const orders = await Order.find({ 
+      isRejectedBySeller: true 
+    }).sort({ updatedAt: -1 }); // Newest updates first
+
+    res.status(200).json({
+      success: true,
+      orders
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to load rejected orders log", 
+      error: error.message 
+    });
+  }
+};
+
+export const processRejectedOrderRefund = async (req, res) => {
+  try {
+    const { sellerRejectionRefundStatus } = req.body; 
+    const orderId = req.params.id;
+
+    const order = await Order.findById(orderId);
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order records not found" });
+    }
+
+    // Defensive Check
+    if (!order.isRejectedBySeller) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "This order was not marked as rejected by a seller." 
+      });
+    }
+
+    // 1. Update the outer tracking status flag
+    order.sellerRejectionRefundStatus = sellerRejectionRefundStatus || "refunded";
+    
+    // 2. ✅ Adjust nested payment configuration safely using the newly supported enum value
+    if (order.payment) {
+      order.payment.status = "refunded"; 
+    }
+
+    await order.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Gateway log synchronized and marked as refunded.",
+      order
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to update gateway refund status", 
+      error: error.message 
+    });
   }
 };
