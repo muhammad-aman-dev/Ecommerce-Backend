@@ -11,6 +11,7 @@ import {
 } from "../lib/cloudinaryUploader.js";
 import Products from "../models/Products.js";
 import Orders from "../models/Orders.js";
+import PayoutRequest from "../models/PayoutRequests.js";
 
 // ---------------- SELLER SIGNUP ----------------
 export const sellerSignup = async (req, res) => {
@@ -387,5 +388,157 @@ export const getSellerInsights = async (req, res) => {
 
   } catch (error) {
     res.status(500).json({ message: "Error fetching insights" });
+  }
+};
+
+export const createPayoutRequest = async (req, res) => {
+  try {
+    const { sellerId, amount } = req.body;
+
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a valid payout amount."
+      });
+    }
+
+    // Find seller
+    const seller = await Seller.findById(sellerId);
+    if(!seller.payoutDetails.accountHolderName || !seller.payoutDetails.iban){
+    return res.status(400).json({
+        success: false,
+        message: "Seller Account details not added."
+      });
+    }
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found."
+      });
+    }
+
+    // Check available balance
+    if (amount > seller.remainingPayout) {
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient payout balance. Available balance: ${seller.remainingPayout}`
+      });
+    }
+
+    // Check if seller already has a payout request in progress
+    const existingRequest = await PayoutRequest.findOne({
+      seller: seller._id,
+      status: { $in: ["Pending", "Approved"] }
+    });
+
+    if (existingRequest) {
+      return res.status(400).json({
+        success: false,
+        message: `Your payout request of ${existingRequest.amount} is already in progress.`
+      });
+    }
+
+    // Create payout request
+    const payoutRequest = await PayoutRequest.create({
+      seller: seller._id,
+      sellerName: seller.name,
+      email: seller.email,
+      contact: seller.phone,
+      amount,
+      payoutDetails: seller.payoutDetails
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Payout request submitted successfully.",
+      payoutRequest
+    });
+
+  } catch (error) {
+    console.error("Create Payout Request Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal Server Error"
+    });
+  }
+};
+
+export const addSellerBankDetails = async (req, res) => {
+  try {
+    const sellerId = req.seller?._id || req.seller?.id || req.body.sellerId;
+
+    if (!sellerId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized access. Seller identification missing.",
+      });
+    }
+
+    const { payoutDetails } = req.body;
+
+    if (!payoutDetails) {
+      return res.status(400).json({
+        success: false,
+        message: "Payout configurations parameters are missing.",
+      });
+    }
+
+    const { accountHolderName, bankName, country, accountNumber, iban, swiftCode } = payoutDetails;
+
+    // 3. Strict Input Validation
+    if (!accountHolderName?.trim() || !bankName?.trim() || !country?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Account Holder Name, Bank Name, and Country are strictly required.",
+      });
+    }
+
+    if (!accountNumber?.trim() && !iban?.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Either an Account Number or an IBAN string must be provided.",
+      });
+    }
+
+    const updatedSeller = await Seller.findByIdAndUpdate(
+      sellerId,
+      {
+        $set: {
+          payoutDetails: {
+            accountHolderName: accountHolderName.trim(),
+            bankName: bankName.trim(),
+            country: country.trim(),
+            accountNumber: accountNumber ? accountNumber.trim() : "",
+            iban: iban ? iban.trim().toUpperCase() : "",
+            swiftCode: swiftCode ? swiftCode.trim().toUpperCase() : "",
+          },
+        },
+      },
+      { new: true, runValidators: true } 
+    );
+
+    if (!updatedSeller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller account record could not be found.",
+      });
+    }
+
+    // 5. Send back success block matching frontend expected format
+    return res.status(200).json({
+      success: true,
+      message: "Bank details secured successfully.",
+      seller: updatedSeller,
+    });
+
+  } catch (error) {
+    console.error("Error in addSellerBankDetails:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while writing bank configurations.",
+      error: error.message,
+    });
   }
 };

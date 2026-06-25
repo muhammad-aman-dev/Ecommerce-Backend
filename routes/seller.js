@@ -1,6 +1,6 @@
 // routes/seller.js
 import express from "express";
-import { sellerSignup, modifySellerIds, modifySellerPassword, deleteSeller, getSellerData, changeSellerPassword, getSellerInsights } from "../controllers/sellerController.js";
+import { sellerSignup, modifySellerIds, modifySellerPassword, deleteSeller, getSellerData, changeSellerPassword, getSellerInsights, createPayoutRequest, addSellerBankDetails } from "../controllers/sellerController.js";
 import upload from "../middlewares/multerMiddleware.js";
 import { addProduct } from "../controllers/sellerController.js";
 import { sellerAuth } from "../middlewares/sellerMiddleware.js";
@@ -50,5 +50,7 @@ sellerRouter.get("/insights", sellerAuth, getSellerInsights);
 
 sellerRouter.get("/support/history", sellerAuth, getSellerMessageHistory);
 sellerRouter.post("/support/send", sellerAuth, sendSupportMessage);
+sellerRouter.post("/request-withdrawal", sellerAuth, createPayoutRequest);
+sellerRouter.post("/add-bank-details", sellerAuth, addSellerBankDetails);
 
 export default sellerRouter;
