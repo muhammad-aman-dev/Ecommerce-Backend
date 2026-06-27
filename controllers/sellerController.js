@@ -11,7 +11,7 @@ import {
 } from "../lib/cloudinaryUploader.js";
 import Products from "../models/Products.js";
 import Orders from "../models/Orders.js";
-import PayoutRequest from "../models/PayoutRequests.js";
+import PayoutRequest from "../models/payoutRequests.js"
 
 // ---------------- SELLER SIGNUP ----------------
 export const sellerSignup = async (req, res) => {

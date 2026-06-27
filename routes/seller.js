@@ -53,4 +53,4 @@ sellerRouter.post("/support/send", sellerAuth, sendSupportMessage);
 sellerRouter.post("/request-withdrawal", sellerAuth, createPayoutRequest);
 sellerRouter.post("/add-bank-details", sellerAuth, addSellerBankDetails);
 
-export default sellerRouter;
+export default sellerRouter;    
