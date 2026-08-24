@@ -1066,14 +1066,12 @@ export const getProductsByCategoryCursor = async (req, res) => {
 };
 
 
+// Dynamic Sitemap Handler
 export const getSitemapProducts = async (req, res) => {
   try {
     const products = await Product.find(
-      { status: "Active" },
-      {
-        name: 1,
-        updatedAt: 1,
-      }
+      { status: { $regex: /^active$/i } },
+      { name: 1, updatedAt: 1, images: 1 }
     ).lean();
 
     res.json({
@@ -1082,9 +1080,12 @@ export const getSitemapProducts = async (req, res) => {
         id: p._id.toString(),
         name: p.name,
         updatedAt: p.updatedAt,
+        // Safely resolves the main image URL array from createProduct/updateProduct
+        image: Array.isArray(p.images) && p.images.length > 0 ? p.images[0] : null
       })),
     });
   } catch (err) {
+    console.error("Sitemap backend error:", err);
     res.status(500).json({
       success: false,
       message: "Failed to generate sitemap data",
