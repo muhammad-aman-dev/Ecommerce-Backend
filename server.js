@@ -19,13 +19,13 @@ dotenv.config();
 
 const app = express();
 
-console.log("FRONTEND_URL:", process.env.CLIENT_URL);
+console.log("FRONTEND_URL:", process.env.FRONTEND_URL);
 
 app.use(cookieParser());
 
 // ---------------- MIDDLEWARE ----------------
 app.use(cors({
-  origin: process.env.CLIENT_URL,
+  origin: process.env.FRONTEND_URL,
   credentials: true
 }));
 
